@@ -19,18 +19,20 @@ from .cugraph_utils import cugraphToDGL
 import dgl
 import cupy
 import torch
+from torch.utils.dlpack import from_dlpack, to_dlpack
+
 import cudf
 
 
-class CuGraphStorage():
+class CuGraphStorage:
     """
     Duck-typed version of the DGL GraphStorage class made for cuGraph
     """
+
     def __init__(self, g, ndata=None, edata=None):
         # g must be a cugraph property graph
         if not isinstance(g, PropertyGraph):
-            raise TypeError(
-                f"g must be a PropertyGraphh, got {type(g)}")
+            raise TypeError(f"g must be a PropertyGraphh, got {type(g)}")
 
         self.graphstore = cugraph.gnn.CuGraphStore(graph=g)
         self._edata = self.graphstore.edata
@@ -40,7 +42,7 @@ class CuGraphStorage():
     @property
     def ndata(self):
         ndata_capsule = self._ndata.to_dlpack()
-        nfeat = torch.from_dlpack(ndata_capsule)
+        nfeat = from_dlpack(ndata_capsule)
         return nfeat.to(torch.float32)
 
     @property
@@ -49,11 +51,11 @@ class CuGraphStorage():
 
     def get_node_storage(self, key, ntype=None):
         node_col = self.graphstore.get_node_storage(key, ntype)
-        return torch.as_tensor(cupy.asarray(node_col))
+        return from_dlpack(node_col.to_dlpack())
 
     def get_edge_storage(self, key, etype=None):
         edge_col = self.graphstore.get_edge_storage(key, etype)
-        return torch.as_tensor(cupy.asarray(edge_col))
+        return from_dlpack(edge_col.to_dlpack())
 
     # Required for checking whether single dict is allowed for ndata and edata
     @property
@@ -70,9 +72,16 @@ class CuGraphStorage():
         data_etypes = self._edata[PropertyGraph.type_col_name]
         return data_etypes
 
-    def sample_neighbors(self, seed_nodes, fanout, edge_dir='in', prob=None,
-                         exclude_edges=None, replace=False,
-                         output_device=None):
+    def sample_neighbors(
+        self,
+        seed_nodes,
+        fanout,
+        edge_dir="in",
+        prob=None,
+        exclude_edges=None,
+        replace=False,
+        output_device=None,
+    ):
         """
         Return a DGLGraph which is a subgraph induced by sampling neighboring
         edges ofthe given nodes.
@@ -118,25 +127,34 @@ class CuGraphStorage():
         """
         # change the seed_nodes from pytorch tensor to cudf series
         if torch.is_tensor(seed_nodes):
-            seed_nodes = cupy.asarray(seed_nodes)
-            seed_nodes = cudf.Series(seed_nodes)
+            seed_nodes = to_dlpack(seed_nodes)
+            seed_nodes = cudf.from_dlpack(seed_nodes)
 
         parents_nodes, children_nodes = self.graphstore.sample_neighbors(
-            seed_nodes, fanout, edge_dir='in', prob=None, replace=False)
+            seed_nodes, fanout, edge_dir="in", prob=None, replace=False
+        )
 
-        num_edges = len(children_nodes)
-        edge_ID_list = torch.zeros(num_edges)
-        for i in range(num_edges):
-            mask1 = self._edge_prop_df['_SRC_'] == int(parents_nodes[i])
-            mask2 = self._edge_prop_df['_DST_'] == int(children_nodes[i])
-            edge_ID_list[i] = torch.tensor(self._edge_prop_df[mask1 & mask2]
-                                           ['_EDGE_ID_'].values_host)
+        sample_df = cudf.DataFrame({"_SRC_": parents_nodes, "_DST_": children_nodes})
+        del parents_nodes, children_nodes
+        edge_df = sample_df.merge(
+            self._edge_prop_df[["_SRC_", "_DST_", "_EDGE_ID_"]], on=["_SRC_", "_DST_"]
+        )
+        del sample_df
+
+        edge_df = edge_df.astype(seed_nodes.dtype)
+
         # construct dgl graph, want to double check if children and parents
         # are in the correct order
-        sampled_graph = dgl.graph((children_nodes, parents_nodes))
-        # add '_ID'
-        num_edges = len(children_nodes)
-        sampled_graph.edata['_ID'] = edge_ID_list
+
+        sampled_graph = dgl.graph(
+            (
+                from_dlpack(edge_df["_DST_"].to_dlpack()),
+                from_dlpack(edge_df["_SRC_"].to_dlpack()),
+            )
+        )
+
+        sampled_graph.edata["_ID"] = from_dlpack(edge_df["_EDGE_ID_"].to_dlpack())
+
         # to device function move the dgl graph to desired devices
         if output_device is not None:
             sampled_graph.to_device(output_device)
@@ -209,27 +227,26 @@ class CuGraphStorage():
     # Required in Link Prediction negative sampler
     def find_edges(self, edges, etype=None, output_device=None):
         """Return the source and destination node IDs given the edge IDs within
-         the given edge type.
-         return type is tensor need to change.
+        the given edge type.
+        return type is tensor need to change.
         """
         # edges are a range of edge IDs, for example 0-100
-        selected_edges = (
-            self._edata[self._edata['_TYPE_'] == etype].iloc[edges])
-        src_nodes = selected_edges['_SRC_']
-        dst_nodes = selected_edges['_DST_']
-        src_nodes_tensor = torch.as_tensor(src_nodes, device=output_device)
-        dst_nodes_tensor = torch.as_tensor(dst_nodes, device=output_device)
+        selected_edges = self._edata[self._edata["_TYPE_"] == etype].iloc[edges]
+        src_nodes = selected_edges["_SRC_"]
+        dst_nodes = selected_edges["_DST_"]
+        src_nodes_tensor = from_dlpack(src_nodes.to_dlpack()).to(output_device)
+        dst_nodes_tensor = from_dlpack(dst_nodes.to_dlpack()).to(output_device)
         return src_nodes_tensor, dst_nodes_tensor
 
     # Required in Link Prediction negative sampler
     def num_nodes(self, ntype):
         """Return the number of nodes for the given node type."""
         # use graphstore function
-        return self._ndata[self._ndata['_TYPE_'] == ntype].shape[0]
+        return self._ndata[self._ndata["_TYPE_"] == ntype].shape[0]
 
-    def global_uniform_negative_sampling(self, num_samples,
-                                         exclude_self_loops=True,
-                                         replace=False, etype=None):
+    def global_uniform_negative_sampling(
+        self, num_samples, exclude_self_loops=True, replace=False, etype=None
+    ):
         """
         Per source negative sampling as in ``dgl.dataloading.GlobalUniform``
         """
