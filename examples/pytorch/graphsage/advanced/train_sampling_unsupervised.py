@@ -227,7 +227,7 @@ if __name__ == '__main__':
                                 " e.g., 0,1,2,3; -1 for CPU")
     argparser.add_argument('--dataset', type=str, default='reddit',
                            choices=('reddit', 'ogbn-products'))
-    argparser.add_argument('--num-epochs', type=int, default=2)
+    argparser.add_argument('--num-epochs', type=int, default=20)
     argparser.add_argument('--num-hidden', type=int, default=16)
     argparser.add_argument('--num-layers', type=int, default=2)
     argparser.add_argument('--num-negs', type=int, default=1)

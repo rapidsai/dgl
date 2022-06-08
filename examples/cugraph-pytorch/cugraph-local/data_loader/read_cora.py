@@ -17,6 +17,7 @@ from cugraph.experimental import PropertyGraph
 from dgl.contrib.cugraph import CuGraphStorage
 import numpy as np
 import random
+import os
 
 
 def sample_mask(idx, l):
@@ -26,14 +27,16 @@ def sample_mask(idx, l):
     return np.array(mask, dtype=np.bool)
 
 
-def read_cora(graph_path, feat_path, self_loop=False):
-    cora_M = cudf.read_csv(graph_path, sep='\t', header=None)
-    cora_content = cudf.read_csv(feat_path, sep='\t', header=None)
+def read_cora(raw_path, self_loop=False):
+    graph_path = os.path.join(raw_path, "cora.cites")
+    feat_path = os.path.join(raw_path, "cora.content")
+    cora_M = cudf.read_csv(graph_path, sep="\t", header=None)
+    cora_content = cudf.read_csv(feat_path, sep="\t", header=None)
     # the last column is true label
-    labels = cora_content['1434']
-    cora_content.drop(columns='1434', inplace=True)
+    labels = cora_content["1434"]
+    cora_content.drop(columns="1434", inplace=True)
     # add weight into graph
-    cora_M['weight'] = 1.0
+    cora_M["weight"] = 1.0
 
     # add features to nodes and edges
     pg = PropertyGraph()
@@ -41,10 +44,10 @@ def read_cora(graph_path, feat_path, self_loop=False):
     pg.add_edge_data(cora_M, vertex_col_names=("0", "1"))
     pg.add_vertex_data(cora_content, vertex_col_name="0")
 
-    pg._vertex_prop_dataframe.drop(columns=['0'], inplace=True)
-    pg._edge_prop_dataframe.drop(columns=['0', '1'], inplace=True)
-    pg._vertex_prop_dataframe.drop(columns=['_TYPE_'], inplace=True)
-    pg._vertex_prop_dataframe.drop(columns=['_VERTEX_'], inplace=True)
+    pg._vertex_prop_dataframe.drop(columns=["0"], inplace=True)
+    pg._edge_prop_dataframe.drop(columns=["0", "1"], inplace=True)
+    pg._vertex_prop_dataframe.drop(columns=["_TYPE_"], inplace=True)
+    pg._vertex_prop_dataframe.drop(columns=["_VERTEX_"], inplace=True)
 
     gstore = CuGraphStorage(pg)
 
