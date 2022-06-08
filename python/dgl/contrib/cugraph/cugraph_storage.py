@@ -133,8 +133,8 @@ class CuGraphStorage:
         parents_nodes, children_nodes = self.graphstore.sample_neighbors(
             seed_nodes, fanout, edge_dir="in", prob=None, replace=False
         )
-
-        sample_df = cudf.DataFrame({"_SRC_": parents_nodes, "_DST_": children_nodes})
+        # FIXME: why are children_nodes src and parents_nodes dst here
+        sample_df = cudf.DataFrame({"_SRC_": children_nodes, "_DST_": parents_nodes})
         del parents_nodes, children_nodes
         edge_df = sample_df.merge(
             self._edge_prop_df[["_SRC_", "_DST_", "_EDGE_ID_"]], on=["_SRC_", "_DST_"]
