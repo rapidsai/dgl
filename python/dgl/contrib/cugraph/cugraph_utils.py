@@ -31,8 +31,8 @@ def cugraphToDGL(graph):
     g_dgl : DGLGraph
     """
     edgelist = graph.edges()
-    src = cupy.asarray(edgelist['src'])
-    dst = cupy.asarray(edgelist['dst'])
+    src = cupy.asarray(edgelist["src"])
+    dst = cupy.asarray(edgelist["dst"])
     g_dgl = dgl.graph((src, dst))
     return g_dgl
 
