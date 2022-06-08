@@ -17,6 +17,7 @@ from cugraph.experimental import PropertyGraph
 from dgl.contrib.cugraph import CuGraphStorage
 import numpy as np
 import random
+import os
 
 
 def sample_mask(idx, l):
@@ -26,7 +27,9 @@ def sample_mask(idx, l):
     return np.array(mask, dtype=np.bool)
 
 
-def read_cora(graph_path, feat_path, self_loop=False):
+def read_cora(raw_path, self_loop=False):
+    graph_path = os.path.join(raw_path, "cora.cites")
+    feat_path = os.path.join(raw_path, "cora.content")
     cora_M = cudf.read_csv(graph_path, sep='\t', header=None)
     cora_content = cudf.read_csv(feat_path, sep='\t', header=None)
     # the last column is true label

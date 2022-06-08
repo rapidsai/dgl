@@ -10,8 +10,6 @@ import argparse
 from model import SAGE
 import sys
 sys.path.append('../data_loader')
-from read_cora import read_cora
-from read_reddit import read_reddit
 
 
 def compute_acc(pred, labels):
@@ -165,15 +163,17 @@ if __name__ == '__main__':
     args = argparser.parse_args()
 
     if args.gpu >= 0:
+        import numba.cuda as cuda  # Order is very important, do this first before cuda work
+        cuda.select_device(args.gpu)  # Create cuda context on the right gpu, defaults to gpu-0
         device = th.device('cuda:%d' % args.gpu)
     else:
-        device = th.device('cpu')
+        raise Exception('Unsupported device')
+    
 
     if args.dataset == 'cora':
-        graph_path = '../datasets/cora/cora.cites'
-        feat_path = '../datasets/cora/cora.content'
-        gstore, labels, idx_train, idx_val, idx_test = read_cora(graph_path,
-                                                                 feat_path)
+        from read_cora import read_cora
+        raw_path = "../datasets/cora"
+        gstore, labels, idx_train, idx_val, idx_test = read_cora(raw_path)
         n_classes = 7
 
         # we only consider transductive cases for now
@@ -184,6 +184,7 @@ if __name__ == '__main__':
 
     elif args.dataset == 'reddit':
         raw_path = "../datasets/reddit"
+        from read_reddit import read_reddit
         gstore, labels, train_mask, val_mask, test_mask = read_reddit(raw_path)
         n_classes = 41
         train_g = val_g = test_g = gstore
