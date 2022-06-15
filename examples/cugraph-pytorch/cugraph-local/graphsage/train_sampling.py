@@ -145,14 +145,15 @@ def run(args, device, data):
         if epoch >= 5:
             avg += toc - tic
         if epoch % args.eval_every == 0 and epoch != 0:
-            eval_acc = evaluate(
-                model, val_g, val_nfeat, val_labels, val_nid, device
-            )
-            print("Eval Acc {:.4f}".format(eval_acc))
-            test_acc = evaluate(
-                model, test_g, test_nfeat, test_labels, test_nid, device
-            )
-            print("Test Acc: {:.4f}".format(test_acc))
+            # TODO: Uncomment after PR xxx lands to fix sampling with -1
+            # eval_acc = evaluate(
+            #     model, val_g, val_nfeat, val_labels, val_nid, device
+            # )
+            # print("Eval Acc {:.4f}".format(eval_acc))
+            # test_acc = evaluate(
+            #     model, test_g, test_nfeat, test_labels, test_nid, device
+            # )
+            # print("Test Acc: {:.4f}".format(test_acc))
 
     print("Avg epoch time: {}".format(avg / (epoch - 4)))
 
@@ -165,7 +166,7 @@ if __name__ == "__main__":
         default=0,
         help="GPU device ID. Use -1 for CPU training",
     )
-    argparser.add_argument("--dataset", type=str, default="reddit")
+    argparser.add_argument("--dataset", type=str, default="dgl")
     argparser.add_argument("--num-epochs", type=int, default=20)
     argparser.add_argument("--num-hidden", type=int, default=16)
     argparser.add_argument("--num-layers", type=int, default=2)
