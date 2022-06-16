@@ -127,7 +127,7 @@ def run(args, device, data):
             loss.backward()
             optimizer.step()
 
-            iter_output.append(len(seeds) / (time.time() - tic_step))
+            iter_output.append((time.time() - tic_step))
             if step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 # gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 \
@@ -135,8 +135,9 @@ def run(args, device, data):
                 print(
                     f"Epoch {epoch: 05d} | Step {step: 05d}" +
                     f"| Loss {loss.item(): .4f}" +
-                    f"| Train Acc {acc.item(): .4f} |" +
-                    f"Speed (samples/sec) {np.mean(iter_output[3:]): .4f}"
+                    f"| Train Acc {acc.item(): .4f}" +
+                    f"| Batch size of {args.batch_size} E2E took on "
+                    f"average {np.mean(iter_output[3:]): .4f} s"
                     )
             tic_step = time.time()
 
@@ -145,19 +146,14 @@ def run(args, device, data):
         if epoch >= 5:
             avg += toc - tic
         if epoch % args.eval_every == 0 and epoch != 0:
-            pass
-            # TODO: Uncomment after PR https://github.com/rapidsai/cugraph/pull/2358
-            # lands to fix sampling with -1
-
-            # eval_acc = evaluate(
-            #     model, val_g, val_nfeat, val_labels, val_nid, device
-            # )
-            # print("Eval Acc {:.4f}".format(eval_acc))
-            # test_acc = evaluate(
-            #     model, test_g, test_nfeat, test_labels, test_nid, device
-            # )
-            # print("Test Acc: {:.4f}".format(test_acc))
-
+            eval_acc = evaluate(
+                model, val_g, val_nfeat, val_labels, val_nid, device
+            )
+            print("Eval Acc {:.4f}".format(eval_acc))
+            test_acc = evaluate(
+                model, test_g, test_nfeat, test_labels, test_nid, device
+            )
+            print("Test Acc: {:.4f}".format(test_acc))
 
     print("Avg epoch time: {}".format(avg / (epoch - 4)))
 
@@ -223,7 +219,7 @@ if __name__ == "__main__":
 
     if args.dataset == "cora":
         from read_cora import read_cora
-        gstore, labels, idx_train, idx_val, idx_test  = read_cora()
+        gstore, labels, idx_train, idx_val, idx_test = read_cora()
         n_classes = 7
 
         # we only consider transductive cases for now
