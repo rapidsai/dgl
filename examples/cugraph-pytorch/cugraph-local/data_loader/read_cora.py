@@ -11,13 +11,56 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import cudf
-from cugraph.experimental import PropertyGraph
-from dgl.contrib.cugraph import CuGraphStorage
-import numpy as np
-import random
+import dgl
 import os
+import random
+import numpy as np
+
+# Util to create cora graph based on DGL
+def create_cora_cugraph_pg_from_dgl(g):
+    import cudf
+    import cupy as cp
+    from cugraph.experimental import PropertyGraph
+
+    pg = PropertyGraph()
+
+    edges = g.edges()
+    edge_data = cudf.DataFrame(
+        {"src": cp.asarray(edges[0]), "dst": cp.asarray(edges[1])}
+    )
+    del edges
+    pg.add_edge_data(edge_data, vertex_col_names=["src", "dst"])
+    del edge_data
+
+    feat_ar = cp.asarray(g.ndata["feat"])
+    feat_df = cudf.DataFrame(feat_ar)
+    feat_df["vertex_id"] = cp.arange(0, len(feat_df))
+    pg.add_vertex_data(feat_df, vertex_col_name="vertex_id")
+
+    pg._vertex_prop_dataframe.drop(columns=["_TYPE_"], inplace=True)
+    pg._vertex_prop_dataframe.drop(columns=["_VERTEX_"], inplace=True)
+    pg._vertex_prop_dataframe.drop(columns=["vertex_id"], inplace=True)
+
+    return pg
+
+
+def read_cora():
+    from dgl.contrib.cugraph.cugraph_storage import CuGraphStorage
+    import cupy
+
+    data = dgl.data.CoraGraphDataset()
+    g = data[0]
+    pg = create_cora_cugraph_pg_from_dgl(g)
+
+    gstore = CuGraphStorage(pg)
+    del pg
+
+    labels = g.ndata["label"]
+
+    indices = np.arange(len(labels))
+    random.shuffle(indices)
+    idx_train, idx_val, idx_test = np.split(indices, [1000, 1500])
+    return gstore, labels, idx_train, idx_val, idx_test
 
 
 def sample_mask(idx, l):
@@ -25,35 +68,3 @@ def sample_mask(idx, l):
     mask = np.zeros(l)
     mask[idx] = 1
     return np.array(mask, dtype=np.bool)
-
-
-def read_cora(raw_path, self_loop=False):
-    graph_path = os.path.join(raw_path, "cora.cites")
-    feat_path = os.path.join(raw_path, "cora.content")
-    cora_M = cudf.read_csv(graph_path, sep="\t", header=None)
-    cora_content = cudf.read_csv(feat_path, sep="\t", header=None)
-    # the last column is true label
-    labels = cora_content["1434"]
-    cora_content.drop(columns="1434", inplace=True)
-    # add weight into graph
-    cora_M["weight"] = 1.0
-
-    # add features to nodes and edges
-    pg = PropertyGraph()
-
-    pg.add_edge_data(cora_M, vertex_col_names=("0", "1"))
-    pg.add_vertex_data(cora_content, vertex_col_name="0")
-
-    pg._vertex_prop_dataframe.drop(columns=["0"], inplace=True)
-    pg._edge_prop_dataframe.drop(columns=["0", "1"], inplace=True)
-    pg._vertex_prop_dataframe.drop(columns=["_TYPE_"], inplace=True)
-    pg._vertex_prop_dataframe.drop(columns=["_VERTEX_"], inplace=True)
-
-    gstore = CuGraphStorage(pg)
-
-    # define train, test and val splits
-    indices = np.arange(len(labels))
-    random.shuffle(indices)
-    idx_train, idx_val, idx_test = np.split(indices, [1000, 1500])
-
-    return gstore, labels, idx_train, idx_val, idx_test

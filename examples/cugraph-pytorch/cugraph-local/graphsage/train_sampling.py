@@ -106,7 +106,7 @@ def run(args, device, data):
 
     # Training loop
     avg = 0
-    iter_tput = []
+    iter_output = []
     for epoch in range(args.num_epochs):
         tic = time.time()
 
@@ -127,16 +127,17 @@ def run(args, device, data):
             loss.backward()
             optimizer.step()
 
-            iter_tput.append(len(seeds) / (time.time() - tic_step))
+            iter_output.append((time.time() - tic_step))
             if step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 # gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 \
                 #                if th.cuda.is_available() else 0
                 print(
                     f"Epoch {epoch: 05d} | Step {step: 05d}" +
-                    f"| Loss {loss.item(),: .4f}" +
-                    f"| Train Acc {acc.item(): .4f} |" +
-                    f"Speed (samples/sec) {np.mean(iter_tput[3:]),: .4f}"
+                    f"| Loss {loss.item(): .4f}" +
+                    f"| Train Acc {acc.item(): .4f}" +
+                    f"| Batch size of {args.batch_size} E2E took on "
+                    f"average {np.mean(iter_output[3:]): .4f} s"
                     )
             tic_step = time.time()
 
@@ -165,7 +166,7 @@ if __name__ == "__main__":
         default=0,
         help="GPU device ID. Use -1 for CPU training",
     )
-    argparser.add_argument("--dataset", type=str, default="reddit")
+    argparser.add_argument("--dataset", type=str, default="cora")
     argparser.add_argument("--num-epochs", type=int, default=20)
     argparser.add_argument("--num-hidden", type=int, default=16)
     argparser.add_argument("--num-layers", type=int, default=2)
@@ -178,7 +179,7 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
+        default=0,
         help="Number of sampling processes." "Use 0 for no extra process.",
     )
     argparser.add_argument(
@@ -213,19 +214,18 @@ if __name__ == "__main__":
     else:
         raise Exception("Unsupported device")
 
+    if args.num_workers > 0:
+        raise Exception("Unsupported num_workers")
+
     if args.dataset == "cora":
         from read_cora import read_cora
-
-        raw_path = "../datasets/cora"
-        gstore, labels, idx_train, idx_val, idx_test = read_cora(raw_path)
+        gstore, labels, idx_train, idx_val, idx_test = read_cora()
         n_classes = 7
 
         # we only consider transductive cases for now
         train_g = val_g = test_g = gstore
         train_nfeat = val_nfeat = test_nfeat = gstore.ndata
-        train_labels = val_labels = test_labels = th.tensor(
-            labels, dtype=th.long
-        )
+        train_labels = val_labels = test_labels = labels
 
     elif args.dataset == "reddit":
         raw_path = "../datasets/reddit"

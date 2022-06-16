@@ -145,11 +145,10 @@ class CuGraphStorage:
 
         # construct dgl graph, want to double check if children and parents
         # are in the correct order
-
         sampled_graph = dgl.graph(
             (
-                from_dlpack(edge_df["_DST_"].to_dlpack()),
                 from_dlpack(edge_df["_SRC_"].to_dlpack()),
+                from_dlpack(edge_df["_DST_"].to_dlpack())
             )
         )
 
@@ -239,11 +238,13 @@ class CuGraphStorage:
         return src_nodes_tensor, dst_nodes_tensor
 
     # Required in Link Prediction negative sampler
-    def num_nodes(self, ntype):
+    def num_nodes(self, ntype=None):
         """Return the number of nodes for the given node type."""
         # use graphstore function
-        return self._ndata[self._ndata["_TYPE_"] == ntype].shape[0]
-
+        if ntype:
+            return self._ndata[self._ndata["_TYPE_"] == ntype].shape[0]
+        else:
+             return self._ndata.shape[0]
     def global_uniform_negative_sampling(
         self, num_samples, exclude_self_loops=True, replace=False, etype=None
     ):
