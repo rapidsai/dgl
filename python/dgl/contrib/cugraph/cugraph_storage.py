@@ -15,7 +15,6 @@
 
 import cugraph
 from cugraph.experimental import PropertyGraph
-from .cugraph_utils import cugraphToDGL
 import dgl
 import cupy
 import torch
@@ -32,36 +31,30 @@ class CuGraphStorage:
     def __init__(self, g, ndata=None, edata=None):
         # g must be a cugraph property graph
         if not isinstance(g, PropertyGraph):
-            raise TypeError(f"g must be a PropertyGraphh, got {type(g)}")
+            raise TypeError(f"g must be a PropertyGraph, got {type(g)}")
 
         self.graphstore = cugraph.gnn.CuGraphStore(graph=g)
-        self._edata = self.graphstore.edata
-        self._ndata = self.graphstore.ndata
         self._edge_prop_df = self.graphstore.gdata._edge_prop_dataframe
+
+    def get_node_storage(self, key, ntype=None):
+        node_data = self.graphstore.get_node_storage(key, ntype)
+        return node_data
+
+    def get_edge_storage(self, key, etype=None):
+        edge_data = self.graphstore.get_edge_storage(key, etype)
+        return edge_data
 
     @property
     def ndata(self):
-        ndata_capsule = self._ndata.to_dlpack()
-        nfeat = from_dlpack(ndata_capsule)
-        return nfeat.to(torch.float32)
+        return self.graphstore.ndata
 
     @property
     def edata(self):
-        return self._edata
+        return self.graphstore.edata
 
-    def get_node_storage(self, key, ntype=None):
-        node_col = self.graphstore.get_node_storage(key, ntype)
-        return from_dlpack(node_col.to_dlpack())
-
-    def get_edge_storage(self, key, etype=None):
-        edge_col = self.graphstore.get_edge_storage(key, etype)
-        return from_dlpack(edge_col.to_dlpack())
-
-    # Required for checking whether single dict is allowed for ndata and edata
     @property
     def ntypes(self):
-        data_ntypes = self._ndata[PropertyGraph.type_col_name]
-        # TODO: double check the return type
+        data_ntypes = self.graphstore.ntypes
         return data_ntypes
 
     @property
@@ -145,10 +138,11 @@ class CuGraphStorage:
 
         # construct dgl graph, want to double check if children and parents
         # are in the correct order
+
         sampled_graph = dgl.graph(
             (
                 from_dlpack(edge_df["_SRC_"].to_dlpack()),
-                from_dlpack(edge_df["_DST_"].to_dlpack())
+                from_dlpack(edge_df["_DST_"].to_dlpack()),
             )
         )
 
@@ -188,7 +182,7 @@ class CuGraphStorage:
         """
         sampled_cugraph = self.graphstore.node_subgraph(nodes)
         # the return type is cugraph subgraph
-        sample_graph = cugraphToDGL(sampled_cugraph)
+        sample_graph = dgl.to_cugraph(sampled_cugraph)
         sample_graph.to_device(output_device)
         return sample_graph
 
@@ -221,7 +215,7 @@ class CuGraphStorage:
         DGLGraph
             The subgraph.
         """
-        pass
+        raise NotImplementedError("edge_subgraph is not implemented")
 
     # Required in Link Prediction negative sampler
     def find_edges(self, edges, etype=None, output_device=None):
@@ -241,10 +235,8 @@ class CuGraphStorage:
     def num_nodes(self, ntype=None):
         """Return the number of nodes for the given node type."""
         # use graphstore function
-        if ntype:
-            return self._ndata[self._ndata["_TYPE_"] == ntype].shape[0]
-        else:
-             return self._ndata.shape[0]
+        return self.graphstore.num_nodes(ntype)
+
     def global_uniform_negative_sampling(
         self, num_samples, exclude_self_loops=True, replace=False, etype=None
     ):

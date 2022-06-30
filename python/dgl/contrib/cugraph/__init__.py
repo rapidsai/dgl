@@ -12,4 +12,3 @@
 # limitations under the License.
 
 from .cugraph_storage import CuGraphStorage
-from .cugraph_utils import cugraphToDGL
