@@ -77,7 +77,7 @@ class CuGraphStorage:
     ):
         """
         Return a DGLGraph which is a subgraph induced by sampling neighboring
-        edges ofthe given nodes.
+        edges of the given nodes.
         See ``dgl.sampling.sample_neighbors`` for detailed semantics.
         Parameters
         ----------
@@ -141,8 +141,8 @@ class CuGraphStorage:
 
         sampled_graph = dgl.graph(
             (
-                from_dlpack(edge_df["_SRC_"].to_dlpack()),
                 from_dlpack(edge_df["_DST_"].to_dlpack()),
+                from_dlpack(edge_df["_SRC_"].to_dlpack())
             )
         )
 
