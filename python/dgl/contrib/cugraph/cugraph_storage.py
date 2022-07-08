@@ -13,14 +13,8 @@
 
 # NOTE: Requires cuGraph nightly cugraph-22.06.00a220417 or later
 
-import cugraph
-from cugraph.experimental import PropertyGraph
 import dgl
-import cupy
-import torch
-from torch.utils.dlpack import from_dlpack, to_dlpack
-
-import cudf
+import dgl.backend as F
 
 
 class CuGraphStorage:
@@ -28,21 +22,18 @@ class CuGraphStorage:
     Duck-typed version of the DGL GraphStorage class made for cuGraph
     """
 
-    def __init__(self, g, ndata=None, edata=None):
-        # g must be a cugraph property graph
-        if not isinstance(g, PropertyGraph):
-            raise TypeError(f"g must be a PropertyGraph, got {type(g)}")
+    def __init__(self, g):
+        # lazy import to prevent creating cuda context
+        # till later to help in multiprocessing
+        from cugraph.gnn import CuGraphStore
 
-        self.graphstore = cugraph.gnn.CuGraphStore(graph=g)
-        self._edge_prop_df = self.graphstore.gdata._edge_prop_dataframe
+        self.graphstore = CuGraphStore(graph=g)
 
     def get_node_storage(self, key, ntype=None):
-        node_data = self.graphstore.get_node_storage(key, ntype)
-        return node_data
+        return self.graphstore.get_node_storage(key, ntype)
 
     def get_edge_storage(self, key, etype=None):
-        edge_data = self.graphstore.get_edge_storage(key, etype)
-        return edge_data
+        return self.graphstore.get_edge_storage(key, etype)
 
     @property
     def ndata(self):
@@ -54,16 +45,37 @@ class CuGraphStorage:
 
     @property
     def ntypes(self):
-        data_ntypes = self.graphstore.ntypes
-        return data_ntypes
+        """
+        Return all the node type names in the graph.
+
+        Returns
+        -------
+        list[str]
+            All the node type names in a list.
+        """
+        return self.graphstore.ntypes
+
+    @property
+    def etypes(self):
+        """
+        Return all the edge type names in the graph.
+
+        Returns
+        -------
+        list[str]
+            All the edge type names in a list.
+        """
+        return self.graphstore.etypes
 
     @property
     def canonical_etypes(self):
         raise NotImplementedError("canonical not implemented")
 
-    def etypes(self):
-        data_etypes = self._edata[PropertyGraph.type_col_name]
-        return data_etypes
+    def add_node_data(self, df, node_col_name, node_key, ntype=None):
+        self.graphstore.add_node_data(df, node_col_name, node_key, ntype)
+
+    def add_edge_data(self, df, vertex_col_names, edge_key, etype=None):
+        self.graphstore.add_edge_data(df, vertex_col_names, edge_key, etype)
 
     def sample_neighbors(
         self,
@@ -79,7 +91,7 @@ class CuGraphStorage:
         Return a DGLGraph which is a subgraph induced by sampling neighboring
         edges of the given nodes.
         See ``dgl.sampling.sample_neighbors`` for detailed semantics.
-        Parameters
+        Parameterss
         ----------
         seed_nodes : Tensor or dict[str, Tensor]
             Node IDs to sample neighbors from.
@@ -118,35 +130,36 @@ class CuGraphStorage:
             only the sampled neighboring edges.  The induced edge IDs will be
             in ``edata[dgl.EID]``.
         """
-        # change the seed_nodes from pytorch tensor to cudf series
-        if torch.is_tensor(seed_nodes):
-            seed_nodes = to_dlpack(seed_nodes)
-            seed_nodes = cudf.from_dlpack(seed_nodes)
+        if prob is not None:
+            raise NotImplementedError(
+                "prob is not currently supported for sample_neighbors in CuGraphStorage"
+            )
 
-        parents_nodes, children_nodes = self.graphstore.sample_neighbors(
-            seed_nodes, fanout, edge_dir="in", prob=None, replace=False
+        if exclude_edges is not None:
+            raise NotImplementedError(
+                "exclude_edges is not currently supported for sample_neighbors in CuGraphStorage"
+            )
+
+        if replace is True:
+            raise NotImplementedError(
+                "replace = True is not currently supported for sample_neighbors in CuGraphStorage"
+            )
+
+        if not F.is_tensor(seed_nodes):
+            seed_nodes = F.tensor(seed_nodes)
+        seed_nodes_cap = F.zerocopy_to_dlpack(seed_nodes)
+
+        src_cap, dst_cap, edge_id_cap = self.graphstore.sample_neighbors(
+            seed_nodes_cap, fanout, edge_dir=edge_dir, prob=prob, replace=replace
         )
-        # FIXME: why are children_nodes src and parents_nodes dst here
-        sample_df = cudf.DataFrame({"_SRC_": children_nodes, "_DST_": parents_nodes})
-        del parents_nodes, children_nodes
-        edge_df = sample_df.merge(
-            self._edge_prop_df[["_SRC_", "_DST_", "_EDGE_ID_"]], on=["_SRC_", "_DST_"]
-        )
-        del sample_df
-
-        edge_df = edge_df.astype(seed_nodes.dtype)
-
-        # construct dgl graph, want to double check if children and parents
-        # are in the correct order
-
         sampled_graph = dgl.graph(
             (
-                from_dlpack(edge_df["_DST_"].to_dlpack()),
-                from_dlpack(edge_df["_SRC_"].to_dlpack())
+                F.zerocopy_from_dlpack(src_cap),
+                F.zerocopy_from_dlpack(dst_cap),
             )
         )
-
-        sampled_graph.edata["_ID"] = from_dlpack(edge_df["_EDGE_ID_"].to_dlpack())
+        sampled_graph = sampled_graph.astype(seed_nodes.dtype)
+        sampled_graph.edata["_ID"] = F.zerocopy_from_dlpack(edge_id_cap)
 
         # to device function move the dgl graph to desired devices
         if output_device is not None:
@@ -180,15 +193,11 @@ class CuGraphStorage:
         DGLGraph
             The subgraph.
         """
-        sampled_cugraph = self.graphstore.node_subgraph(nodes)
-        # the return type is cugraph subgraph
-        sample_graph = dgl.to_cugraph(sampled_cugraph)
-        sample_graph.to_device(output_device)
-        return sample_graph
+        raise NotImplementedError("subgraph is not implemented")
 
     # Required in Link Prediction
     # relabel = F we use dgl functions,
-    # relabel = T, we need delete codes and relabel
+    # relabel = T, we need to delete nodes and relabel
     def edge_subgraph(self, edges, relabel_nodes=False, output_device=None):
         """
         Return a subgraph induced on given edges.
@@ -218,24 +227,73 @@ class CuGraphStorage:
         raise NotImplementedError("edge_subgraph is not implemented")
 
     # Required in Link Prediction negative sampler
-    def find_edges(self, edges, etype=None, output_device=None):
-        """Return the source and destination node IDs given the edge IDs within
-        the given edge type.
-        return type is tensor need to change.
+    def find_edges(self, eid, etype=None, output_device=None):
         """
+        Return the source and destination node ID(s) given the edge ID(s).
+
+        Parameters
+        ----------
+        eid : edge ID(s)
+            The edge IDs. The allowed formats are:
+
+            * ``int``: A single ID.
+            * Int Tensor: Each element is an ID. The tensor must have the same device type
+            and ID data type as the graph's.
+            * iterable[int]: Each element is an ID.
+
+        etype : str
+            The type names of the edges.
+            Can be omitted if the graph has only one type of edges.
+
+        Returns
+        -------
+        Tensor
+            The source node IDs of the edges. The i-th element is the source node ID of
+            the i-th edge.
+        Tensor
+            The destination node IDs of the edges. The i-th element is the destination node
+            ID of the i-th edge.
+        """
+        src_cap, dst_cap = self.graphstore.find_edges(eid, etype)
         # edges are a range of edge IDs, for example 0-100
-        selected_edges = self._edata[self._edata["_TYPE_"] == etype].iloc[edges]
-        src_nodes = selected_edges["_SRC_"]
-        dst_nodes = selected_edges["_DST_"]
-        src_nodes_tensor = from_dlpack(src_nodes.to_dlpack()).to(output_device)
-        dst_nodes_tensor = from_dlpack(dst_nodes.to_dlpack()).to(output_device)
+        src_nodes_tensor = F.zerocopy_from_dlpack(src_cap).to(output_device)
+        dst_nodes_tensor = F.zerocopy_from_dlpack(dst_cap).to(output_device)
         return src_nodes_tensor, dst_nodes_tensor
 
     # Required in Link Prediction negative sampler
     def num_nodes(self, ntype=None):
-        """Return the number of nodes for the given node type."""
+        """
+        Return the number of nodes in the graph.
+        Parameters
+        ----------
+        ntype : str, optional
+            The node type name. If given, it returns the number of nodes of the
+            type. If not given (default), it returns the total number of nodes of all types.
+
+        Returns
+        -------
+        int
+            The number of nodes.
+        """
         # use graphstore function
         return self.graphstore.num_nodes(ntype)
+
+    def num_edges(self, etype=None):
+        """
+        Return the number of edges in the graph.
+        Parameters
+        ----------
+        ntype : str, optional
+            The node type name. If given, it returns the number of nodes of the
+            type. If not given (default), it returns the total number of nodes of all types.
+
+        Returns
+        -------
+        int
+            The number of edges
+        """
+        # use graphstore function
+        return self.graphstore.num_edges(etype)
 
     def global_uniform_negative_sampling(
         self, num_samples, exclude_self_loops=True, replace=False, etype=None
