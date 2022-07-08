@@ -35,6 +35,14 @@ class CuGraphStorage:
     def get_edge_storage(self, key, etype=None):
         return self.graphstore.get_edge_storage(key, etype)
 
+    def get_node_storage(self, key, ntype=None):
+        node_data = self.graphstore.get_node_storage(key, ntype)
+        return node_data
+
+    def get_edge_storage(self, key, etype=None):
+        edge_data = self.graphstore.get_edge_storage(key, etype)
+        return edge_data
+
     @property
     def ndata(self):
         return self.graphstore.ndata
