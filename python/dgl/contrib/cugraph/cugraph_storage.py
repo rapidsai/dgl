@@ -35,14 +35,6 @@ class CuGraphStorage:
     def get_edge_storage(self, key, etype=None):
         return self.graphstore.get_edge_storage(key, etype)
 
-    def get_node_storage(self, key, ntype=None):
-        node_data = self.graphstore.get_node_storage(key, ntype)
-        return node_data
-
-    def get_edge_storage(self, key, etype=None):
-        edge_data = self.graphstore.get_edge_storage(key, etype)
-        return edge_data
-
     @property
     def ndata(self):
         return self.graphstore.ndata
@@ -140,17 +132,20 @@ class CuGraphStorage:
         """
         if prob is not None:
             raise NotImplementedError(
-                "prob is not currently supported for sample_neighbors in CuGraphStorage"
+                "prob is not currently supported",
+                " for sample_neighbors in CuGraphStorage",
             )
 
         if exclude_edges is not None:
             raise NotImplementedError(
-                "exclude_edges is not currently supported for sample_neighbors in CuGraphStorage"
+                "exclude_edges is not currently supported",
+                " for sample_neighbors in CuGraphStorage",
             )
 
         if replace is True:
             raise NotImplementedError(
-                "replace = True is not currently supported for sample_neighbors in CuGraphStorage"
+                "replace = True is not currently supported",
+                " for sample_neighbors in CuGraphStorage",
             )
 
         if not F.is_tensor(seed_nodes):
@@ -158,7 +153,11 @@ class CuGraphStorage:
         seed_nodes_cap = F.zerocopy_to_dlpack(seed_nodes)
 
         src_cap, dst_cap, edge_id_cap = self.graphstore.sample_neighbors(
-            seed_nodes_cap, fanout, edge_dir=edge_dir, prob=prob, replace=replace
+            seed_nodes_cap,
+            fanout,
+            edge_dir=edge_dir,
+            prob=prob,
+            replace=replace,
         )
         sampled_graph = dgl.graph(
             (
@@ -245,7 +244,8 @@ class CuGraphStorage:
             The edge IDs. The allowed formats are:
 
             * ``int``: A single ID.
-            * Int Tensor: Each element is an ID. The tensor must have the same device type
+            * Int Tensor: Each element is an ID.
+            The tensor must have the same device type
             and ID data type as the graph's.
             * iterable[int]: Each element is an ID.
 
@@ -256,11 +256,11 @@ class CuGraphStorage:
         Returns
         -------
         Tensor
-            The source node IDs of the edges. The i-th element is the source node ID of
-            the i-th edge.
+            The source node IDs of the edges.
+            The i-th element is the source node ID of the i-th edge.
         Tensor
-            The destination node IDs of the edges. The i-th element is the destination node
-            ID of the i-th edge.
+            The destination node IDs of the edges.
+            The i-th element is the destination node ID of the i-th edge.
         """
         src_cap, dst_cap = self.graphstore.find_edges(eid, etype)
         # edges are a range of edge IDs, for example 0-100
@@ -276,7 +276,9 @@ class CuGraphStorage:
         ----------
         ntype : str, optional
             The node type name. If given, it returns the number of nodes of the
-            type. If not given (default), it returns the total number of nodes of all types.
+            type.
+            If not given (default), it  returns the total number of nodes
+            of all types.
 
         Returns
         -------
@@ -293,7 +295,8 @@ class CuGraphStorage:
         ----------
         ntype : str, optional
             The node type name. If given, it returns the number of nodes of the
-            type. If not given (default), it returns the total number of nodes of all types.
+            type. If not given (default), it returns the total number of nodes
+            of all types.
 
         Returns
         -------
