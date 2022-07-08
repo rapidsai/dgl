@@ -99,7 +99,7 @@ class CuGraphStorage:
         Return a DGLGraph which is a subgraph induced by sampling neighboring
         edges of the given nodes.
         See ``dgl.sampling.sample_neighbors`` for detailed semantics.
-        Parameterss
+        Parameters
         ----------
         seed_nodes : Tensor or dict[str, Tensor]
             Node IDs to sample neighbors from.
