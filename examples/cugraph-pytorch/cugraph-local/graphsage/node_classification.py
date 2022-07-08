@@ -12,7 +12,6 @@ import argparse
 
 # Example based on
 # https://github.com/dmlc/dgl/blob/master/examples/pytorch/graphsage/node_classification.py
-
 ## cugraph imports
 import cugraph
 import cudf
@@ -101,11 +100,11 @@ def layerwise_infer(args, device, graph, nid, model, batch_size):
 def train(device, g, dataset, model):
 
     # batch size
-    b_size = 1024
+    b_size = 128
 
     # create sampler & dataloader
-    train_idx = dataset.train_idx.to(device)[0:2500]
-    val_idx = dataset.val_idx.to(device)[0:2500]
+    train_idx = dataset.train_idx.to(device)
+    val_idx = dataset.val_idx.to(device)
     sampler = NeighborSampler(
         [10, 10, 10],  # fanout for layer-0, layer-1 and layer-2
         prefetch_node_feats=["feat"],
@@ -138,8 +137,7 @@ def train(device, g, dataset, model):
 
     opt = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=5e-4)
 
-    # training on 2 epoch
-    for epoch in range(2):
+    for epoch in range(10):
         model.train()
         total_loss = 0
         last_it_t = time.time()
@@ -169,7 +167,10 @@ def add_ndata(gs, graph):
         raise "graph.ntypes!=1 not currently supported"
 
     for key in graph.ndata.keys():
-        ar = cupy.asarray(graph.ndata[key])
+        # TODO: Change to_dlpack
+        # tensor = tensor.to('cpu')
+        # ar = cupy.from_dlpack(F.zerocopy_to_dlpack(tensor))
+        ar = graph.ndata[key].cpu().detach().numpy()
         cudf_data_obj = cudf.DataFrame(ar)
         # handle 1d tensors
         if isinstance(cudf_data_obj, cudf.Series):
@@ -186,36 +187,35 @@ def add_ndata(gs, graph):
     return gs
 
 
-def create_cugraph_store(graph):
-    # graph = graph.to('cuda')
-    cugraph_g = to_cugraph(graph)
-    # create pg from cugraph graph
-    pg = cugraph.experimental.PropertyGraph()
-    pg.add_edge_data(cugraph_g.edges(), vertex_col_names=["src", "dst"])
-
-    # create gs from pg
-    gs = dgl.contrib.cugraph.CuGraphStorage(pg)
-    gs.graphstore = add_ndata(gs.graphstore, graph)
+def add_edata(gs, graph):
+    src_t, dst_t = graph.edges()
+    edge_ids = graph.edge_ids(src_t, dst_t)
+    df = cudf.DataFrame(
+        {
+            "src": cudf.from_dlpack(dgl.backend.zerocopy_to_dlpack(src_t)),
+            "dst": cudf.from_dlpack(dgl.backend.zerocopy_to_dlpack(dst_t)),
+            "edge_id": cudf.from_dlpack(dgl.backend.zerocopy_to_dlpack(edge_ids)),
+        }
+    )
+    gs.add_edge_data(df, ["src", "dst"], "edge_id")
     return gs
 
 
-def to_cugraph(g):
-    """
-    # switch to g.to_cugraph()
-    # once https://github.com/dmlc/dgl/pull/4166 lands
-    """
-    edgelist = g.edges()
-    src_ser = cudf.from_dlpack(dgl.backend.zerocopy_to_dlpack(edgelist[0]))
-    dst_ser = cudf.from_dlpack(dgl.backend.zerocopy_to_dlpack(edgelist[1]))
-    cudf_data = cudf.DataFrame({"source": src_ser, "destination": dst_ser})
-    g_cugraph = cugraph.Graph(directed=True)
-    g_cugraph.from_cudf_edgelist(cudf_data, source="source", destination="destination")
-    return g_cugraph
+def create_cugraph_store(graph):
+    # create pg from cugraph graph
+    pg = cugraph.experimental.PropertyGraph()
+    # create gs from pg
+    gs = dgl.contrib.cugraph.CuGraphStorage(pg)
+    add_edata(gs, graph)
+    add_ndata(gs, graph)
+    return gs
 
 
 ### Create a cugraph store dataset from
 ### DGL.graph
-dataset = AsNodePredDataset(DglNodePropPredDataset("ogbn-arxiv"))
+dataset = AsNodePredDataset(
+    dgl.data.CoraGraphDataset(raw_dir="/datasets/vjawa/CoraGraphDataset/")
+)
 g = dataset[0]
 g = g.to("cuda")
 g = create_cugraph_store(g)
@@ -225,6 +225,6 @@ in_size = g.ndata["feat"].shape[1]
 out_size = dataset.num_classes
 model = SAGE(in_size, 256, out_size).to("cuda")
 
-# model training
-print("Training")
+# # model training
+# print("Training")
 train(torch.device("cuda"), g, dataset, model)

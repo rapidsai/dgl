@@ -214,7 +214,7 @@ def add_edata(gs, graph):
         {
             "src": cudf.from_dlpack(F.zerocopy_to_dlpack(src_t)),
             "dst": cudf.from_dlpack(F.zerocopy_to_dlpack(dst_t)),
-            "edge_id": cudf.from_dlpack(F.zerocopy_to_dlpack(dst_t)),
+            "edge_id": cudf.from_dlpack(F.zerocopy_to_dlpack(edge_ids)),
         }
     )
     gs.add_edge_data(df, ["src", "dst"], "edge_id")
